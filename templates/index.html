@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cek Kesehatan Sapi</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Arial, sans-serif;
+      margin: 0; padding: 24px;
+      background: #f5f7f4; color: #1c2b1e;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    .sub { color: #667; font-size: 13px; margin-bottom: 20px; }
+    .card {
+      background: #fff; border: 1px solid #e2e6e0;
+      border-radius: 10px; padding: 18px; margin-bottom: 16px;
+    }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+    }
+    label { display: block; font-size: 12px; color: #556; margin-bottom: 4px; }
+    input {
+      width: 100%; padding: 9px 10px; font-size: 14px;
+      border: 1px solid #cfd6cc; border-radius: 6px;
+      font-family: inherit;
+    }
+    input:focus { outline: 2px solid #2e7d32; outline-offset: -1px; }
+    button {
+      width: 100%; padding: 12px; font-size: 15px; font-weight: 600;
+      background: #2e7d32; color: #fff; border: 0; border-radius: 8px;
+      cursor: pointer; margin-top: 16px; font-family: inherit;
+    }
+    button:hover { background: #256428; }
+    button:disabled { background: #a5bfa7; cursor: wait; }
+    .hasil { display: none; }
+    .hasil.tampil { display: block; }
+    .badge {
+      display: inline-block; padding: 5px 14px; border-radius: 20px;
+      font-weight: 700; font-size: 16px; margin-bottom: 8px;
+    }
+    .sehat { background: #e3f2e4; color: #1b5e20; }
+    .sakit { background: #fdecea; color: #b3261e; }
+    .saran { font-size: 14px; line-height: 1.6; margin: 8px 0 0; }
+    .err {
+      background: #fdecea; border: 1px solid #f5c6c2; color: #b3261e;
+      padding: 10px 12px; border-radius: 8px; font-size: 13px;
+      margin-bottom: 14px; display: none;
+    }
+    .err.tampil { display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    td { padding: 6px 4px; border-bottom: 1px solid #eef1ed; }
+    td:last-child { text-align: right; width: 70px; color: #556; }
+    .bar { height: 6px; background: #eef1ed; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+    .bar > div { height: 100%; background: #2e7d32; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Cek Kesehatan Sapi</h1>
+    <div class="sub">model akurasi {{ (akurasi * 100) | round(1) }}% · random forest</div>
+
+    <div class="err" id="err"></div>
+
+    <div class="card">
+      <div class="grid">
+        {% for f in fitur %}
+        <div>
+          <label for="{{ f }}">{{ f.replace('_', ' ') }}</label>
+          <input type="number" step="any" id="{{ f }}" name="{{ f }}"
+                 placeholder="{{ batas[f][0] }} - {{ batas[f][1] }}">
+        </div>
+        {% endfor %}
+      </div>
+      <button id="btn" onclick="cek()">Cek sekarang</button>
+    </div>
+
+    <div class="card hasil" id="hasil">
+      <div id="badge" class="badge"></div>
+      <div class="saran" id="saran"></div>
+      <table id="tabel"></table>
+    </div>
+  </div>
+
+<script>
+const FITUR = {{ fitur | tojson }};
+
+async function cek() {
+  const err = document.getElementById('err');
+  const hasil = document.getElementById('hasil');
+  const btn = document.getElementById('btn');
+  err.classList.remove('tampil');
+  hasil.classList.remove('tampil');
+
+  const body = {};
+  for (const f of FITUR) {
+    const v = document.getElementById(f).value;
+    if (v === '') {
+      err.textContent = 'kolom ' + f.replace(/_/g, ' ') + ' masih kosong';
+      err.classList.add('tampil');
+      return;
+    }
+    body[f] = Number(v);
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'ngitung...';
+
+  try {
+    const r = await fetch('/api/cek', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+
+    if (!r.ok) {
+      err.textContent = d.error || 'ada yang salah';
+      err.classList.add('tampil');
+      return;
+    }
+
+    const sehat = d.hasil === 'sehat';
+    const badge = document.getElementById('badge');
+    badge.textContent = d.hasil.replace(/_/g, ' ') + ' (' + (d.yakin * 100).toFixed(1) + '%)';
+    badge.className = 'badge ' + (sehat ? 'sehat' : 'sakit');
+    document.getElementById('saran').textContent = d.saran;
+
+    const tabel = document.getElementById('tabel');
+    tabel.innerHTML = d.semua.map(x =>
+      '<tr><td>' + x.label.replace(/_/g, ' ') +
+      '<div class="bar"><div style="width:' + (x.yakin * 100) + '%"></div></div></td>' +
+      '<td>' + (x.yakin * 100).toFixed(1) + '%</td></tr>'
+    ).join('');
+
+    hasil.classList.add('tampil');
+  } catch (e) {
+    err.textContent = 'gak bisa nyambung ke server';
+    err.classList.add('tampil');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Cek sekarang';
+  }
+}
+
+FITUR.forEach(f => {
+  document.getElementById(f).addEventListener('keydown', e => {
+    if (e.key === 'Enter') cek();
+  });
+});
+</script>
+</body>
+</html>
